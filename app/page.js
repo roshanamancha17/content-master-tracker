@@ -183,7 +183,7 @@ export default function YTTracker() {
               cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="4" fill="transparent"
               strokeDasharray={2 * Math.PI * 28}
               strokeDashoffset={2 * Math.PI * 28 * (1 - Math.min(
-                (channels.reduce((acc, ch) => acc + getChannelStatus(ch.uploads).days, 0) / (channels.length || 1)) / 30, 1
+                (channels.reduce((acc, ch) => acc + getChannelStatus(ch.uploads).days, 0) / (channels.length || 1)) / 21, 1
               ))}
               strokeLinecap="round"
               className="text-blue-600 transition-all duration-1000"
