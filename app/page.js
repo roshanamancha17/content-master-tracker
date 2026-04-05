@@ -1,14 +1,21 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Trash2, MapPin, Download } from 'lucide-react';
+import { Plus, Trash2, MapPin, Download, LogOut, Loader2 } from 'lucide-react';
 import { format, addDays, eachDayOfInterval, endOfMonth, addMonths, isFirstDayOfMonth } from 'date-fns';
 import { getChannelStatus, getStreak } from '@/lib/utils';
+
+// FIREBASE IMPORTS
+import { auth, db, googleProvider } from '@/lib/firebase';
+import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function YTTracker() {
   const [channels, setChannels] = useState([]);
   const [newName, setNewName] = useState('');
   const [monthsToView, setMonthsToView] = useState(2);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const todayRef = useRef(null);
 
   const calendarDays = useMemo(() => {
@@ -17,14 +24,44 @@ export default function YTTracker() {
     return eachDayOfInterval({ start, end: endOfMonth(end) });
   }, [monthsToView]);
 
+  // 1. LISTEN FOR AUTH CHANGES & LOAD DATA
   useEffect(() => {
-    const saved = localStorage.getItem('yt-data');
-    if (saved) setChannels(JSON.parse(saved));
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        const docRef = doc(db, "users", u.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setChannels(docSnap.data().channels || []);
+        }
+      } else {
+        // Fallback to local storage if logged out
+        const saved = localStorage.getItem('yt-data');
+        if (saved) setChannels(JSON.parse(saved));
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
+  // 2. SYNC DATA TO FIREBASE (OR LOCALSTORAGE)
   useEffect(() => {
-    localStorage.setItem('yt-data', JSON.stringify(channels));
-  }, [channels]);
+    if (loading) return;
+
+    if (user) {
+      setDoc(doc(db, "users", user.uid), { channels }, { merge: true });
+    } else {
+      localStorage.setItem('yt-data', JSON.stringify(channels));
+    }
+  }, [channels, user, loading]);
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error("Login Error:", err);
+    }
+  };
 
   const scrollToToday = () => {
     todayRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -55,10 +92,36 @@ export default function YTTracker() {
     }));
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 text-slate-900 font-sans">
       <div className="max-w-7xl mx-auto">
         
+        {/* AUTH HEADER */}
+        <div className="flex justify-end mb-4">
+          {!user ? (
+            <button 
+              onClick={handleGoogleLogin}
+              className="bg-white border px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 transition-all"
+            >
+              Sync with Google
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 bg-white border px-4 py-2 rounded-xl shadow-sm">
+              <img src={user.photoURL} className="w-5 h-5 rounded-full" alt="avatar" />
+              <span className="text-[9px] font-black uppercase text-slate-400">Cloud Sync Active</span>
+              <button onClick={() => signOut(auth)} className="text-red-500"><LogOut size={14}/></button>
+            </div>
+          )}
+        </div>
+
         {/* HEADER */}
         <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-12 border-b pb-8">
           <div>
@@ -171,7 +234,7 @@ export default function YTTracker() {
         </div>
       </div>
 
-      {/* FLOAT JUMP BUTTON */}
+      {/* FLOAT JUMP BUTTON (21 DAY LOGIC) */}
       <div className="fixed bottom-8 right-8 z-50 flex items-center justify-center">
         <button 
           onClick={scrollToToday}
@@ -190,9 +253,6 @@ export default function YTTracker() {
             />
           </svg>
           <MapPin size={22} className="text-blue-600 relative z-10" />
-          <span className="absolute right-20 bg-slate-900 text-white text-[10px] font-black px-3 py-2 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap uppercase tracking-widest">
-            Jump to Today
-          </span>
         </button>
       </div>
     </div>
